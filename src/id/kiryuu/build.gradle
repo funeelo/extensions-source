@@ -1,5 +1,5 @@
 ext {
-    extName = 'Kiryuu'
+    extName = 'KiryuuV2'
     extClass = '.Kiryuu'
     themePkg = 'mangathemesia'
     baseUrl = 'https://kiryuu02.com'
