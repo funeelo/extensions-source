@@ -546,7 +546,7 @@ class DoujinDesu : ParsedHttpSource(), ConfigurableSource {
 
                     val content = htmlSplit.getOrNull(1)?.replace(htmlTagRegex, "")?.trim().orEmpty()
 
-                    return@let "Sinop = "nav.pagination > ul > li.last > a"
+                    return@let "nav.pagination > ul > li.last > a"
     override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
     override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
 
