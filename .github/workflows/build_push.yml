@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload APKs (${{ matrix.chunk.number }})
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: "github.repository == 'keiyoushi/extensions-source'"
+        if: "github.repository == 'funeelo/extensions-source'"
         with:
           name: "individual-apks-${{ matrix.chunk.number }}"
           path: "**/*.apk"
@@ -110,7 +110,7 @@ jobs:
   publish:
     name: Publish extension repo
     needs: [prepare, build]
-    if: "github.repository == 'keiyoushi/extensions-source'"
+    if: "github.repository == 'funeelo/extensions-source'"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -136,7 +136,7 @@ jobs:
         run: |
           cd main
           python ./.github/scripts/move-built-apks.py
-          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/keiyoushi/extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
+          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/funeelo/extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
           curl -L "$INSPECTOR_LINK" -o ./Inspector.jar
           java -jar ./Inspector.jar "repo/apk" "output.json" "tmp"
           python ./.github/scripts/create-repo.py
@@ -144,7 +144,7 @@ jobs:
       - name: Checkout repo branch
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          repository: keiyoushi/extensions
+          repository: funeelo/extensions
           token: ${{ secrets.BOT_PAT }}
           ref: repo
           path: repo
