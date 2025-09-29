@@ -1,8 +1,7 @@
 /**
  * Add or remove modules to load as needed for local development here.
  */
-loadAllIndividualExtensions()
-// loadIndividualExtension("all", "mangadex")
+// loadAllIndividualExtensions()
 
 /**
  * ===================================== COMMON CONFIGURATION ======================================
@@ -18,13 +17,14 @@ File(rootDir, "lib-multisrc").eachDir { include("lib-multisrc:${it.name}") }
 /**
  * ======================================== HELPER FUNCTION ========================================
  */
-fun loadAllIndividualExtensions() {
-    File(rootDir, "src").eachDir { dir ->
-        dir.eachDir { subdir ->
-            include("src:${dir.name}:${subdir.name}")
-        }
+fun loadAllIdExtensions() {
+    File(rootDir, "src/id").eachDir { subdir ->
+        include("src:id:${subdir.name}")
     }
 }
+
+loadAllIdExtensions()
+
 fun loadIndividualExtension(lang: String, name: String) {
     include("src:${lang}:${name}")
 }
