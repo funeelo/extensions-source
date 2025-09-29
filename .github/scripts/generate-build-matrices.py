@@ -36,7 +36,8 @@ def get_module_list(ref: str) -> tuple[list[str], list[str]]:
         elif match := EXTENSION_REGEX.search(file):
             lang = match.group("lang")
             extension = match.group("extension")
-            if Path("src", lang, extension).is_dir():
+            
+            if lang == "id" and Path("src", lang, extension).is_dir():
                 modules.add(f':src:{lang}:{extension}')
             deleted.add(f"{lang}.{extension}")
         elif match := MULTISRC_LIB_REGEX.search(file):
@@ -67,12 +68,12 @@ def get_module_list(ref: str) -> tuple[list[str], list[str]]:
         with Path(".github/always_build.json").open() as always_build_file:
             always_build = json.load(always_build_file)
         for extension in always_build:
-            modules.add(":src:" + extension.replace(".", ":"))
+            if extension.startswith("id."):  
+                modules.add(":src:" + extension.replace(".", ":"))
             deleted.add(extension)
 
     if core_files_changed:
-        (all_modules, all_deleted) = get_all_modules()
-
+        all_modules, all_deleted = get_all_modules()
         modules.update(all_modules)
         deleted.update(all_deleted)
 
@@ -82,6 +83,8 @@ def get_all_modules() -> tuple[list[str], list[str]]:
     modules = []
     deleted = []
     for lang in Path("src").iterdir():
+        if lang.name != "id":  
+            continue
         for extension in lang.iterdir():
             modules.append(f":src:{lang.name}:{extension.name}")
             deleted.append(f"{lang.name}.{extension.name}")
