@@ -1,5 +1,145 @@
 package eu.kanade.tachiyomi.extension.id.doujindesu
 
+package com.lagradost.cloudstream3.network
+
+import android.util.Log
+import android.webkit.CookieManager
+import androidx.annotation.AnyThread
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.mvvm.debugWarning
+import com.lagradost.cloudstream3.mvvm.safe
+import com.lagradost.nicehttp.Requests.Companion.await
+import com.lagradost.nicehttp.cookies
+import kotlinx.coroutines.runBlocking
+import okhttp3.Headers
+import okhttp3.Interceptor
+import okhttp3.Request
+import okhttp3.Response
+import java.net.URI
+
+
+@AnyThread
+class CloudflareKiller : Interceptor {
+    companion object {
+        const val TAG = "CloudflareKiller"
+        private val ERROR_CODES = listOf(403, 503)
+        private val CLOUDFLARE_SERVERS = listOf("cloudflare-nginx", "cloudflare")
+        fun parseCookieMap(cookie: String): Map<String, String> {
+            return cookie.split(";").associate {
+                val split = it.split("=")
+                (split.getOrNull(0)?.trim() ?: "") to (split.getOrNull(1)?.trim() ?: "")
+            }.filter { it.key.isNotBlank() && it.value.isNotBlank() }
+        }
+    }
+
+    init {
+        // Needs to clear cookies between sessions to generate new cookies.
+        safe {
+            // This can throw an exception on unsupported devices :(
+            CookieManager.getInstance().removeAllCookies(null)
+        }
+    }
+
+    val savedCookies: MutableMap<String, Map<String, String>> = mutableMapOf()
+
+    /**
+     * Gets the headers with cookies, webview user agent included!
+     * */
+    fun getCookieHeaders(url: String): Headers {
+        val userAgentHeaders = WebViewResolver.webViewUserAgent?.let {
+            mapOf("user-agent" to it)
+        } ?: emptyMap()
+
+        return getHeaders(userAgentHeaders, savedCookies[URI(url).host] ?: emptyMap())
+    }
+
+    override fun intercept(chain: Interceptor.Chain): Response = runBlocking {
+        val request = chain.request()
+
+        when (val cookies = savedCookies[request.url.host]) {
+            null -> {
+                val response = chain.proceed(request)
+                if(!(response.header("Server") in CLOUDFLARE_SERVERS && response.code in ERROR_CODES)) {
+                    return@runBlocking response
+                } else {
+                    response.close()
+                    bypassCloudflare(request)?.let {
+                        Log.d(TAG, "Succeeded bypassing cloudflare: ${request.url}")
+                        return@runBlocking it
+                    }
+                }
+            }
+            else -> {
+                return@runBlocking proceed(request, cookies)
+            }
+        }
+
+        debugWarning({ true }) { "Failed cloudflare at: ${request.url}" }
+        return@runBlocking chain.proceed(request)
+    }
+
+    private fun getWebViewCookie(url: String): String? {
+        return safe {
+            CookieManager.getInstance()?.getCookie(url)
+        }
+    }
+
+    /**
+     * Returns true if the cf cookies were successfully fetched from the CookieManager
+     * Also saves the cookies.
+     * */
+    private fun trySolveWithSavedCookies(request: Request): Boolean {
+        // Not sure if this takes expiration into account
+        return getWebViewCookie(request.url.toString())?.let { cookie ->
+            cookie.contains("cf_clearance").also { solved ->
+                if (solved) savedCookies[request.url.host] = parseCookieMap(cookie)
+            }
+        } ?: false
+    }
+
+    private suspend fun proceed(request: Request, cookies: Map<String, String>): Response {
+        val userAgentMap = WebViewResolver.getWebViewUserAgent()?.let {
+            mapOf("user-agent" to it)
+        } ?: emptyMap()
+
+        val headers =
+            getHeaders(request.headers.toMap() + userAgentMap, cookies + request.cookies)
+        return app.baseClient.newCall(
+            request.newBuilder()
+                .headers(headers)
+                .build()
+        ).await()
+    }
+
+    private suspend fun bypassCloudflare(request: Request): Response? {
+        val url = request.url.toString()
+
+        // If no cookies then try to get them
+        // Remove this if statement if cookies expire
+        if (!trySolveWithSavedCookies(request)) {
+            Log.d(TAG, "Loading webview to solve cloudflare for ${request.url}")
+            WebViewResolver(
+                // Never exit based on url
+                Regex(".^"),
+                // Cloudflare needs default user agent
+                userAgent = null,
+                // Cannot use okhttp (i think intercepting cookies fails which causes the issues)
+                useOkhttp = false,
+                // Match every url for the requestCallBack
+                additionalUrls = listOf(Regex("."))
+            ).resolveUsingWebView(
+                url
+            ) {
+                trySolveWithSavedCookies(request)
+            }
+        }
+
+        val cookies = savedCookies[request.url.host] ?: return null
+        return proceed(request, cookies)
+    }
+}
+
+
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.preference.EditTextPreference
@@ -34,7 +174,9 @@ class DoujinDesu : ParsedHttpSource(), ConfigurableSource {
     override val baseUrl by lazy { preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!! }
     override val lang = "id"
     override val supportsLatest = true
-    override val client: OkHttpClient = network.cloudflareClient
+    override val client: OkHttpClient = network.client.newBuilder()
+        .addInterceptor(CloudflareBypassInterceptor(App.instance))
+        .build()
 
     // Private stuff
 
@@ -436,218 +578,4 @@ class DoujinDesu : ParsedHttpSource(), ConfigurableSource {
 
     override fun mangaDetailsParse(document: Document): SManga {
         val infoElement = document.selectFirst("section.metadata")!!
-        val authorName = if (infoElement.select("td:contains(Author) ~ td").isEmpty()) {
-            null
-        } else {
-            infoElement.select("td:contains(Author) ~ td").joinToString { it.text() }
-        }
-        val groupName = if (infoElement.select("td:contains(Group) ~ td").isEmpty()) {
-            "Tidak Diketahui"
-        } else {
-            infoElement.select("td:contains(Group) ~ td").joinToString { it.text() }
-        }
-        val authorParser = if (authorName.isNullOrEmpty()) {
-            groupName?.takeIf { !it.isNullOrEmpty() && it != "Tidak Diketahui" }
-        } else {
-            authorName
-        }
-        val characterName = if (infoElement.select("td:contains(Character) ~ td").isEmpty()) {
-            "Tidak Diketahui"
-        } else {
-            infoElement.select("td:contains(Character) ~ td").joinToString { it.text() }
-        }
-        val seriesParser = if (infoElement.select("td:contains(Series) ~ td").text() == "Manhwa") {
-            infoElement.select("td:contains(Serialization) ~ td").text()
-        } else {
-            infoElement.select("td:contains(Series) ~ td").text()
-        }
-        val alternativeTitle = if (infoElement.select("h1.title > span.alter").isEmpty()) {
-            "Tidak Diketahui"
-        } else {
-            infoElement.select("h1.title > span.alter").joinToString { it.text() }
-        }
-        val manga = SManga.create()
-        manga.description = if (infoElement.select("div.pb-2 > p:nth-child(1)").isEmpty()) {
-            """
-            Tidak ada deskripsi yang tersedia bosque
-
-            Judul Alternatif : $alternativeTitle
-            Grup             : $groupName
-            Karakter         : $characterName
-            Seri             : $seriesParser
-            """.trimIndent()
-        } else {
-            val pb2Element = infoElement.selectFirst("div.pb-2")
-
-            val showDescription = pb2Element?.let { element ->
-                val paragraphs = element.select("p")
-                val firstText = paragraphs.firstOrNull()?.text()?.trim()?.lowercase()
-
-                // CASE 1: Gabungan chapter dalam satu paragraf
-                val mergedChapterElement = element.select("p:has(strong:matchesOwn(^\\s*Sinopsis\\s*:))").firstOrNull {
-                    chapterListRegex.containsMatchIn(it.html())
-                }
-
-                if (mergedChapterElement != null) {
-                    val chapterList = mergedChapterElement.html()
-                        .split("<br>")
-                        .drop(1)
-                        .map { it.replace(htmlTagRegex, "").trim() }
-                        .filter { it.isNotEmpty() }
-
-                    return@let "Daftar Chapter:\n" + chapterList.joinToString(" | ")
-                }
-
-                // CASE 2: Dua paragraf: p[0] = "Sinopsis:", p[1] = daftar chapter
-                if (
-                    firstText == "sinopsis:" &&
-                    paragraphs.size > 1 &&
-                    chapterListRegex.containsMatchIn(paragraphs[1].html())
-                ) {
-                    val chapterList = paragraphs[1].html()
-                        .split("<br>")
-                        .map { it.replace(htmlTagRegex, "").trim() }
-                        .filter { it.isNotEmpty() }
-
-                    return@let "Daftar Chapter:\n" + chapterList.joinToString(" | ")
-                }
-
-                // CASE 3: Sinopsis biasa pakai <strong>Sinopsis:</strong> di p awal
-                val sinopsisPara = element.select("p:has(strong:matchesOwn(^\\s*Sinopsis\\s*:))")
-                if (sinopsisPara.isNotEmpty()) {
-                    val sinopsisStart = sinopsisPara.first()!!
-                    val htmlSplit = sinopsisStart.html().split("<br>")
-
-                    val startText = htmlSplit.getOrNull(1)?.replace(htmlTagRegex, "")?.trim().orEmpty()
-
-                    val sinopsisTexts = buildList {
-                        if (startText.isNotEmpty()) add(startText)
-
-                        val allP = element.select("p")
-                        val startIndex = allP.indexOf(sinopsisStart)
-
-                        for (i in startIndex + 1 until allP.size) {
-                            val content = allP[i].text().trim()
-                            if (!content.lowercase().startsWith("download")) {
-                                add(content)
-                            } else {
-                                break
-                            }
-                        }
-                    }
-                    return@let "Sinopsis:\n" + sinopsisTexts.joinToString("\n\n")
-                }
-
-                // CASE 4: Satu paragraf saja dengan <strong> dan <br>
-                if (
-                    paragraphs.size == 1 &&
-                    element.select("p:has(strong:matchesOwn(^\\s*Sinopsis\\s*:))").isNotEmpty()
-                ) {
-                    val para = paragraphs[0]
-                    val htmlSplit = para.html().split("<br>")
-
-                    val content = htmlSplit.getOrNull(1)?.replace(htmlTagRegex, "")?.trim().orEmpty()
-
-                    return@let "Sinopsis:\n$content"
-                }
-
-                // CASE 5: Fallback
-                if (firstText == "sinopsis:") {
-                    val sinopsisLines = paragraphs.drop(1)
-                        .map { it.text().trim() }
-                        .filter { !it.lowercase().startsWith("download") }
-
-                    return@let "Sinopsis:\n" + sinopsisLines.joinToString("\n\n")
-                }
-                return@let ""
-            } ?: ""
-            """
-            |$showDescription
-            |
-            |Judul Alternatif : $alternativeTitle
-            |Seri             : $seriesParser
-            """.trimMargin().replace(Regex(" +"), " ")
-        }
-        val genres = mutableListOf<String>()
-        infoElement.select("div.tags > a").forEach { element ->
-            val genre = element.text()
-            genres.add(genre)
-        }
-        manga.author = authorParser
-        manga.genre = infoElement.select("div.tags > a").joinToString { it.text() }
-        manga.status = parseStatus(
-            infoElement.selectFirst("td:contains(Status) ~ td")!!.text(),
-        )
-        manga.thumbnail_url = document.selectFirst("figure.thumbnail img")?.attr("src")
-
-        return manga
-    }
-
-    // Chapter Stuff
-
-    override fun chapterFromElement(element: Element): SChapter {
-        val chapter = SChapter.create()
-        val eps = element.selectFirst("div.epsright chapter")?.text()
-        chapter.chapter_number = getNumberFromString(eps)
-        chapter.date_upload = reconstructDate(element.select("div.epsleft > span.date").text())
-        chapter.name = "Chapter $eps"
-        chapter.setUrlWithoutDomain(element.select("div.epsleft > span.lchx > a").attr("href"))
-
-        return chapter
-    }
-
-    override fun headersBuilder(): Headers.Builder =
-        super.headersBuilder()
-            .add("Referer", "$baseUrl/")
-            .add("X-Requested-With", "XMLHttpRequest")
-
-    override fun imageRequest(page: Page): Request {
-        val newHeaders = headersBuilder()
-            .set("Accept", "image/avif,image/webp,*/*")
-            .set("Referer", baseUrl)
-            .build()
-
-        return GET(page.imageUrl!!, newHeaders)
-    }
-
-    override fun chapterListSelector(): String = "#chapter_list li"
-
-    // More parser stuff
-    override fun imageUrlParse(document: Document): String =
-        throw UnsupportedOperationException()
-
-    override fun pageListParse(document: Document): List<Page> {
-        val id = document.select("#reader").attr("data-id")
-        val body = FormBody.Builder()
-            .add("id", id)
-            .build()
-        return client.newCall(POST("$baseUrl/themes/ajax/ch.php", headers, body)).execute()
-            .asJsoup().select("img").mapIndexed { i, element ->
-                Page(i, "", element.attr("src"))
-            }
-    }
-
-    companion object {
-        private val PREF_DOMAIN_KEY = "preferred_domain_name_v${AppInfo.getVersionName()}"
-        private const val PREF_DOMAIN_TITLE = "Mengganti BaseUrl"
-        private const val PREF_DOMAIN_DEFAULT = "https://doujindesu.tv"
-        private const val PREF_DOMAIN_SUMMARY = "Mengganti domain default dengan domain yang berbeda"
-    }
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        EditTextPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            dialogTitle = PREF_DOMAIN_TITLE
-            summary = PREF_DOMAIN_SUMMARY
-            dialogMessage = "Default: $PREF_DOMAIN_DEFAULT"
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                Toast.makeText(screen.context, "Mulai ulang aplikasi untuk menerapkan pengaturan baru.", Toast.LENGTH_LONG).show()
-                true
-            }
-        }.also(screen::addPreference)
-        addRandomUAPreferenceToScreen(screen)
-    }
-}
+        val authorName = if (infoElement.select("td:contains(Author)
