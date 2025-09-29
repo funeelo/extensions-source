@@ -1,7 +1,0 @@
-ext {
-    extName = 'Japscan'
-    extClass = '.Japscan'
-    extVersionCode = 52
-}
-
-apply from: "$rootDir/common.gradle"
