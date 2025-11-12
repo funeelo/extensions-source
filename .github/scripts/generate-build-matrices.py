@@ -72,9 +72,12 @@ def get_module_list(ref: str) -> tuple[list[str], list[str]]:
 
     if core_files_changed:
         (all_modules, all_deleted) = get_all_modules()
-
         modules.update(all_modules)
         deleted.update(all_deleted)
+
+    
+    modules = [m for m in modules if m.startswith(":src:id:")]
+    deleted = [d for d in deleted if d.startswith("id.")]
 
     return list(modules), list(deleted)
 
@@ -82,6 +85,8 @@ def get_all_modules() -> tuple[list[str], list[str]]:
     modules = []
     deleted = []
     for lang in Path("src").iterdir():
+        if lang.name != "id":  
+            continue
         for extension in lang.iterdir():
             modules.append(f":src:{lang.name}:{extension.name}")
             deleted.append(f"{lang.name}.{extension.name}")
