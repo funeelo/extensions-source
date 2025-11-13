@@ -9,6 +9,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class Kiryuu : MangaThemesia(
     "Kiryuu",
@@ -20,6 +21,8 @@ class Kiryuu : MangaThemesia(
     override val id = 3639673976007021338
 
     override val client: OkHttpClient = super.client.newBuilder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val response = chain.proceed(chain.request())
             val mime = response.headers["Content-Type"]
@@ -34,7 +37,7 @@ class Kiryuu : MangaThemesia(
             }
             response
         }
-        .rateLimit(4)
+        .rateLimit(2, 1, TimeUnit.SECONDS)
         .build()
 
     override fun Element.imgAttr(): String = when {
