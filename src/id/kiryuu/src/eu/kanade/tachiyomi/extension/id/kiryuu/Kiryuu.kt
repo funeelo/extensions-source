@@ -11,10 +11,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 class Kiryuu : MangaThemesia(
-    "Kiryuu", 
-    "https://kiryuu03.com", 
-    "id", 
-    dateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale("id"))
+    "Kiryuu",
+    "https://kiryuu03.com",
+    "id",
+    dateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale("id")),
 ) {
     // Formerly "Kiryuu (WP Manga Stream)"
     override val id = 3639673976007021338
