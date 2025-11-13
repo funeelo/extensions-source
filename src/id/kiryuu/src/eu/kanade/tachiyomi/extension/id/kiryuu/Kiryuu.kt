@@ -20,7 +20,7 @@ class Kiryuu : MangaThemesia(
     "Kiryuu",
     "https://kiryuu02.com",
     "id",
-    dateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale("id"))
+    dateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale("id")),
 ) {
     override val id = 3639673976007021338
 
@@ -79,7 +79,7 @@ class Kiryuu : MangaThemesia(
         val url = "$baseUrl/manga".toHttpUrl().newBuilder()
             .addQueryParameter("title", query)
             .addQueryParameter("page", page.toString())
-        
+
         filters.forEach { filter ->
             when (filter) {
                 is StatusFilter -> {
@@ -94,7 +94,7 @@ class Kiryuu : MangaThemesia(
                 else -> {}
             }
         }
-        
+
         return GET(url.build(), headers)
     }
 
@@ -130,14 +130,14 @@ class Kiryuu : MangaThemesia(
 
     override fun pageListParse(document: Document): List<Page> {
         val pages = mutableListOf<Page>()
-        
+
         document.select("div#readerarea img").forEachIndexed { index, element ->
             val imageUrl = element.imgAttr()
             if (imageUrl.isNotEmpty()) {
                 pages.add(Page(index, "", imageUrl))
             }
         }
-        
+
         return pages
     }
 
