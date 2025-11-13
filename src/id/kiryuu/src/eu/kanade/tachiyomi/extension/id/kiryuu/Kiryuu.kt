@@ -4,7 +4,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
-import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
@@ -107,7 +106,7 @@ class Kiryuu : ParsedHttpSource() {
     override fun mangaDetailsParse(document: Document): SManga {
         return SManga.create().apply {
             title = document.selectFirst("h1.text-3xl, h1")?.text() ?: ""
-            thumbnail_url = document.selectFirst("img[alt*='${title}'], div.relative img")?.attr("abs:src")
+            thumbnail_url = document.selectFirst("img[alt*='$title'], div.relative img")?.attr("abs:src")
             description = document.selectFirst("div[class*='description'], div.text-sm p")?.text()
             author = document.select("div:contains(Author) + div, span:contains(Author) + span").text()
             artist = author
@@ -128,7 +127,7 @@ class Kiryuu : ParsedHttpSource() {
     override fun chapterFromElement(element: Element): SChapter {
         return SChapter.create().apply {
             setUrlWithoutDomain(element.attr("href"))
-            name = element.selectFirst("span.font-medium, h3")?.text() 
+            name = element.selectFirst("span.font-medium, h3")?.text()
                 ?: element.ownText()
             date_upload = element.selectFirst("span.text-xs, time")?.text()?.let {
                 try {
