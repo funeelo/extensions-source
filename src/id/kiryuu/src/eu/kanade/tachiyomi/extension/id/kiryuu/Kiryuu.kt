@@ -38,21 +38,20 @@ class Kiryuu : ParsedHttpSource() {
         return GET("$baseUrl/advanced-search/?order=popular&page=$page", headers)
     }
 
-    override fun popularMangaSelector() = "div.flex.rounded-lg.overflow-hidden"
+    override fun popularMangaSelector() = "#search-results > div > div"
 
     override fun popularMangaFromElement(element: Element): SManga {
         return SManga.create().apply {
-            element.selectFirst("a[href*='/manga/']")?.let { link ->
-                setUrlWithoutDomain(link.attr("href"))
-                title = link.selectFirst("a.text-base")?.text()
-                    ?: link.selectFirst("img")?.attr("alt")
-                    ?: ""
-            }
+            val link = element.selectFirst("a[href*='/manga/']")!!
+            setUrlWithoutDomain(link.attr("href"))
+            title = link.selectFirst("h1, a.text-base")?.text()
+                ?: link.selectFirst("img")?.attr("alt")
+                ?: ""
             thumbnail_url = element.selectFirst("img")?.attr("abs:src")
         }
     }
 
-    override fun popularMangaNextPageSelector() = "a[rel='next']"
+    override fun popularMangaNextPageSelector() = "button[onclick*='page']:has(svg polyline)"
 
     // Latest Updates
     override fun latestUpdatesRequest(page: Int): Request {
@@ -109,10 +108,10 @@ class Kiryuu : ParsedHttpSource() {
     // Manga Details
     override fun mangaDetailsParse(document: Document): SManga {
         return SManga.create().apply {
-            title = document.selectFirst("h1.text-3xl, h1.font-bold")?.text() ?: ""
+            title = document.selectFirst("h1")?.text() ?: ""
             thumbnail_url = document.selectFirst("img.rounded-lg, div.relative img")?.attr("abs:src")
             description = document.selectFirst("p.text-sm.text-gray-300")?.text()
-            author = document.select("div:contains(Author) + div, span:contains(Pengarang)").text()
+            author = document.select("div:contains(Author), span:contains(Pengarang)").text()
             artist = author
             status = parseStatus(document.select("span.bg-accent, div:contains(Status)").text())
             genre = document.select("a[href*='/genre/'], div.rounded-full span").joinToString { it.text() }
@@ -126,13 +125,13 @@ class Kiryuu : ParsedHttpSource() {
     }
 
     // Chapter List
-    override fun chapterListSelector() = "a.text-white[href*='/chapter']"
+    override fun chapterListSelector() = "a.text-white[href*='/chapter'], a.w-full[href*='/chapter']"
 
     override fun chapterFromElement(element: Element): SChapter {
         return SChapter.create().apply {
             setUrlWithoutDomain(element.attr("href"))
-            name = element.selectFirst("h1.font-semibold")?.text()
-                ?: element.selectFirst("span")?.text()
+            name = element.selectFirst("h1, p, div.flex span")?.text()
+                ?: element.ownText()
                 ?: "Chapter"
             date_upload = element.selectFirst("time")?.attr("datetime")?.let {
                 try {
